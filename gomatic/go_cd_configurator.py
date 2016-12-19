@@ -45,7 +45,7 @@ class GoCdConfigurator(object):
 
         if response.status_code != 200:
             raise Exception("Failed to get {} status {}\n:{}".format(config_url, response.status_code, response.text))
-        return response.text, response.headers['x-cruise-config-md5']
+        return response.text.encode('utf-8'), response.headers['x-cruise-config-md5']
 
     def reorder_elements_to_please_go(self):
         move_all_to_end(self.__xml_root, 'pipelines')
@@ -210,17 +210,25 @@ class GoCdConfigurator(object):
 
 
 class HostRestClient(object):
-    def __init__(self, host):
+    def __init__(self, host, username=None, password=None, ssl=False, verify_ssl=True):
         self.__host = host
+        self.__username = username
+        self.__password = password
+        self.__ssl = ssl
+        self.__verify_ssl = verify_ssl
 
     def __repr__(self):
-        return 'HostRestClient("%s")' % self.__host
+        return 'HostRestClient("{0}", ssl={1})'.format(self.__host, self.__ssl)
 
-    def __path(self, path):
-        return ('http://%s' % self.__host) + path
+    def  __path(self, path):
+        http_prefix = 'https://' if self.__ssl else 'http://'
+        return '{0}{1}{2}'.format(http_prefix, self.__host, path)
+ 
+    def __auth(self):
+        return (self.__username, self.__password) if self.__username or self.__password else None
 
     def get(self, path):
-        result = requests.get(self.__path(path))
+        result = requests.get(self.__path(path), auth=self.__auth(), verify=self.__verify_ssl)
         count = 0
         while ((result.status_code == 503) or (result.status_code == 504)) and (count < 5):
             result = requests.get(self.__path(path))
@@ -230,7 +238,7 @@ class HostRestClient(object):
 
     def post(self, path, data):
         url = self.__path(path)
-        result = requests.post(url, data)
+        result = requests.post(url, data, auth=self.__auth(), verify=self.__verify_ssl)
         if result.status_code != 200:
             try:
                 result_json = json.loads(result.text.replace("\\'", "'"))
@@ -240,19 +248,23 @@ class HostRestClient(object):
                 raise RuntimeError("Could not post config to Go server (%s) [status code=%s] (and result was not json):\n%s" % (url, result.status_code, result))
 
 
-if __name__ == '__main__':
+def main(args):
     parser = argparse.ArgumentParser(description='Gomatic is an API for configuring GoCD. '
                                                  'Run python -m gomatic.go_cd_configurator to reverse engineer code to configure an existing pipeline.')
     parser.add_argument('-s', '--server', help='the go server (e.g. "localhost:8153" or "my.gocd.com")')
     parser.add_argument('-p', '--pipeline', help='the name of the pipeline to reverse-engineer the config for')
+    parser.add_argument('--username', help='the username for the gocd server', default=None)
+    parser.add_argument('--password', help='the password for the gocd server', default=None)
+    parser.add_argument('--ssl', help='use HTTPS for the connection to the gocd server', dest='ssl', action='store_true', default=False)
+    parser.add_argument('--verify_ssl', help='if set the identity of the ssl certificate will be verified.', dest='verify_ssl', action='store_true', default=False)
 
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
-    go_server = GoCdConfigurator(HostRestClient(args.server))
+    go_server = GoCdConfigurator(HostRestClient(args.server, args.username, args.password, ssl=args.ssl, verify_ssl=args.verify_ssl))
 
     matching_pipelines = [p for p in go_server.pipelines if p.name == args.pipeline]
     if len(matching_pipelines) != 1:
@@ -260,3 +272,6 @@ if __name__ == '__main__':
     pipeline = matching_pipelines[0]
 
     print(go_server.as_python(pipeline))
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
