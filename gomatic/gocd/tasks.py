@@ -125,7 +125,7 @@ class ExecTask(AbstractTask):
             new_element = ET.fromstring('<exec command="%s" workingdir="%s"></exec>' % (self.__command_and_args[0], self.__working_dir))
 
         for arg in self.__command_and_args[1:]:
-            new_element.append(ET.fromstring('<arg>%s</arg>' % escape(arg)))
+            new_element.append(ET.fromstring('<arg>%s</arg>' % escape(arg.encode('utf-8'))))
 
         new_element.append(ET.fromstring('<runif status="%s" />' % self.runif))
 
