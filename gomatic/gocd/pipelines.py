@@ -2,13 +2,13 @@ from xml.etree import ElementTree as ET
 from gomatic.gocd.artifacts import Artifact
 from gomatic.gocd.generic import ThingWithResources, ThingWithEnvironmentVariables
 from gomatic.gocd.materials import Materials, GitMaterial
+from gomatic.gocd.profiles import Profiles, AdminUserProfile
 from gomatic.gocd.tasks import Task
 from gomatic.mixins import CommonEqualityMixin
 from gomatic.xml_operations import PossiblyMissingElement, Ensurance, move_all_to_end
 
 
 DEFAULT_LABEL_TEMPLATE = "0.${COUNT}"  # TODO confirm what default really is. I am pretty sure this is mistaken!
-
 
 class Tab(CommonEqualityMixin):
     def __init__(self, name, path):
@@ -252,6 +252,11 @@ class Stage(CommonEqualityMixin):
         Ensurance(self.element).ensure_child_with_attribute("approval", "type", "manual")
         return self
 
+    def set_has_manual_approval_with_authorization(self,users=[],roles=[]):
+        Ensurance(self.element).ensure_child_with_attribute("approval", "type", "manual")\
+               .append(ET.fromstring('<authorization>%s%s</authorization>' % (''.join('<user>' + user + '</user>' for user in users),''.join('<role>' + role + '</role>' for role in roles))))
+        return self        
+
     def reorder_elements_to_please_go(self):
         move_all_to_end(self.element, "environmentvariables")
         move_all_to_end(self.element, "jobs")
@@ -402,6 +407,22 @@ class Pipeline(CommonEqualityMixin):
     def ensure_material(self, material):
         if self.materials.count(material) == 0:
             self.__add_material(material)
+        return self
+
+
+    @property
+    def authorization_profiles(self):
+        elements = PossiblyMissingElement(self.element).possibly_missing_child('authorization').iterator
+        return [Profiles(element) for element in elements]
+
+    def __add_authorization_profile(self, profile):
+        profile.append_to(Ensurance(self.element).ensure_child('authorization'))
+
+    def set_authorization_profile(self, profile):
+        if not self.is_template:
+            raise RuntimeError("can't set authorization for " + self.name + ", because it isn't a template")
+        if self.authorization_profiles.count(profile) == 0:
+            self.__add_authorization_profile(profile)
         return self
 
     @property
@@ -636,6 +657,19 @@ class PipelineGroup(CommonEqualityMixin):
         pipeline = self.ensure_pipeline(name)
         pipeline.make_empty()
         return pipeline
+
+    @property
+    def authorization_profiles(self):
+        elements = PossiblyMissingElement(self.element).possibly_missing_child('authorization').iterator
+        return [Profiles(element) for element in elements]
+
+    def __add_authorization_profile(self, profile):
+        profile.append_to(Ensurance(self.element).ensure_child('authorization'))
+
+    def set_authorization_profile(self, profile):
+        if self.authorization_profiles.count(profile) == 0:
+            self.__add_authorization_profile(profile)
+        return self
 
 
 def then(s):
